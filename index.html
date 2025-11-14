@@ -3,27 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>🐬 Flipper Admin v2</title>
+    <title>🐬 Flipper BLE v3 (Robust)</title>
     <style>
-        :root { --bg: #050505; --term: #00ff41; --ui: #222; --btn: #333; --accent: #ff8c00; }
-        body { background: var(--bg); color: var(--term); font-family: 'Consolas', monospace; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-        
-        /* Top Bar */
-        header { background: var(--ui); padding: 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; }
-        h1 { margin: 0; font-size: 1.1rem; color: #fff; letter-spacing: 1px; }
+        :root { --bg: #0d0d0d; --text: #00e5ff; --panel: #111; --btn: #333; --accent: #ff8c00; --err: #f44336; }
+        body { background: var(--bg); color: var(--text); font-family: 'Consolas', monospace; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        header { background: var(--panel); padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; }
+        h1 { margin: 0; font-size: 1.1rem; color: #fff; }
         #status { font-size: 0.8rem; color: #666; }
         #btn-conn { background: var(--accent); color: #000; border: none; padding: 6px 12px; border-radius: 4px; font-weight: bold; }
-
-        /* Dashboard Grid */
-        .dashboard { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; padding: 10px; background: #111; border-bottom: 1px solid #333; }
+        .dashboard { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; padding: 10px; background: #1a1a1a; border-bottom: 1px solid #333; }
         .d-btn { background: var(--btn); color: #ccc; border: 1px solid #444; padding: 8px 2px; border-radius: 4px; font-size: 0.7rem; text-align: center; cursor: pointer; }
-        .d-btn:active { background: var(--accent); color: #000; }
-
-        /* Terminal */
-        #term { flex-grow: 1; overflow-y: auto; padding: 10px; font-size: 12px; white-space: pre-wrap; line-height: 1.3; }
-        
-        /* Input */
-        .cli-bar { display: flex; background: var(--ui); padding: 8px; border-top: 1px solid #444; }
+        #term { flex-grow: 1; overflow-y: auto; padding: 10px; font-size: 12px; white-space: pre-wrap; line-height: 1.4; }
+        .cli-bar { display: flex; background: var(--panel); padding: 8px; border-top: 1px solid #444; }
         input { flex-grow: 1; background: #000; border: 1px solid #555; color: #fff; padding: 8px; border-radius: 4px; font-family: inherit; outline: none; }
         #btn-send { margin-left: 8px; background: #006400; color: #fff; border: none; padding: 0 15px; border-radius: 4px; font-size: 1.2rem; }
     </style>
@@ -35,27 +26,17 @@
         <h1>FLIPPER ADMIN</h1>
         <div id="status">Getrennt</div>
     </div>
-    <button id="btn-conn" onclick="connect()">SCAN</button>
+    <button id="btn-conn" onclick="connect()">VERBINDEN</button>
 </header>
 
 <div class="dashboard">
-    <div class="d-btn" onclick="send('device_info')">ℹ️ INFO</div>
-    <div class="d-btn" onclick="send('power_info')">🔋 BATTERIE</div>
-    <div class="d-btn" onclick="send('uptime')">⏱️ UPTIME</div>
-    <div class="d-btn" onclick="send('date')">📅 ZEIT</div>
-    
-    <div class="d-btn" onclick="send('storage list /ext')">📂 SD ROOT</div>
-    <div class="d-btn" onclick="send('storage list /ext/nfc')">💳 NFC LIST</div>
-    <div class="d-btn" onclick="send('vibro 1')">📳 VIBRO</div>
-    <div class="d-btn" onclick="send('led r 255')">🔴 LED ROT</div>
-    
-    <div class="d-btn" onclick="send('bt settings')">📶 BT INFO</div>
-    <div class="d-btn" onclick="term.innerHTML=''">🧹 CLS</div>
-    <div class="d-btn" onclick="send('power_off')">💀 OFF</div>
-    <div class="d-btn" onclick="send('reboot')">🔄 REBOOT</div>
+    <div class="d-btn" onclick="send('help')">HELP</div>
+    <div class="d-btn" onclick="send('power_info')">AKKU</div>
+    <div class="d-btn" onclick="send('storage list /ext')">SD KART</div>
+    <div class="d-btn" onclick="send('reboot')">REBOOT</div>
 </div>
 
-<div id="term">Waiting for connection...</div>
+<div id="term">Warte auf Verbindung...</div>
 
 <div class="cli-bar">
     <input type="text" id="cmd" placeholder="Befehl..." autocomplete="off">
@@ -63,91 +44,105 @@
 </div>
 
 <script>
-    // Flipper Zero Serial UUIDs (Standard)
-    const SERVICE_UUID = '8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000';
-    const TX_CHAR_UUID = '19ed82ae-ed21-4c9d-4145-228e61fe0000'; // Write to Flipper
-    const RX_CHAR_UUID = '19ed82ae-ed21-4c9d-4145-228e62fe0000'; // Read from Flipper
+    // Flipper Zero BLE Serial UUIDs
+    const FLIPPER_SERVICE_UUID = '8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000';
+    const FLIPPER_TX_CHAR = '19ed82ae-ed21-4c9d-4145-228e61fe0000'; // Write
+    const FLIPPER_RX_CHAR = '19ed82ae-ed21-4c9d-4145-228e62fe0000'; // Notify
 
-    let device, rxChar, txChar;
+    let device, rxCharacteristic, txCharacteristic;
     const term = document.getElementById('term');
     const statusDiv = document.getElementById('status');
+    const connectBtn = document.getElementById('btn-conn');
 
     async function connect() {
-        try {
-            statusDiv.innerText = "Suche...";
-            
-            // FIX: "optionalServices" MUSS die Service-UUID enthalten, sonst blockt Android!
-            device = await navigator.bluetooth.requestDevice({
-                filters: [{ namePrefix: 'Flipper' }],
-                optionalServices: [SERVICE_UUID] 
-            });
+        if (!navigator.bluetooth) return alert("Web Bluetooth wird nicht unterstützt!");
 
+        try {
+            log("Suche Flipper via Service-UUID...", 'info');
+            
+            // ### DER FIX ###
+            // Wir filtern jetzt direkt nach dem Service, nicht nach dem Namen.
+            // Das ist die robusteste Methode.
+            device = await navigator.bluetooth.requestDevice({
+                filters: [{
+                    services: [FLIPPER_SERVICE_UUID]
+                }]
+            });
+            
             device.addEventListener('gattserverdisconnected', onDisconnected);
 
-            statusDiv.innerText = "Verbinde GATT...";
+            log("Verbinde mit GATT-Server...", 'info');
             const server = await device.gatt.connect();
             
-            statusDiv.innerText = "Hole Service...";
-            const service = await server.getPrimaryService(SERVICE_UUID);
+            log("Hole Primary Service...", 'info');
+            const service = await server.getPrimaryService(FLIPPER_SERVICE_UUID);
             
-            statusDiv.innerText = "Hole Char...";
-            rxChar = await service.getCharacteristic(RX_CHAR_UUID);
-            txChar = await service.getCharacteristic(TX_CHAR_UUID);
+            log("Hole RX Characteristic...", 'info');
+            rxCharacteristic = await service.getCharacteristic(FLIPPER_RX_CHAR);
+            
+            log("Hole TX Characteristic...", 'info');
+            txCharacteristic = await service.getCharacteristic(FLIPPER_TX_CHAR);
 
-            await rxChar.startNotifications();
-            rxChar.addEventListener('characteristicvaluechanged', handleData);
+            // Notifications starten (Hören)
+            await rxCharacteristic.startNotifications();
+            rxCharacteristic.addEventListener('characteristicvaluechanged', handleData);
 
-            statusDiv.innerText = "Online: " + device.name;
+            // UI Update
+            statusDiv.innerText = "Verbunden: " + (device.name || 'Flipper');
             statusDiv.style.color = "#00ff41";
-            document.getElementById('btn-conn').style.display = 'none';
-            term.innerText = ">>> VERBUNDEN! <<<\n";
+            connectBtn.style.display = 'none';
+            log(">>> VERBINDUNG AKTIV <<<\n", 'success');
             
-            // Wake up terminal
+            // CLI aufwecken
             send('\r'); 
 
         } catch (e) {
-            term.innerText += `\n[ERROR] ${e}\n`;
+            log(`[FEHLER] ${e.name}: ${e.message}`, 'error');
             statusDiv.innerText = "Fehler";
-            statusDiv.style.color = "red";
+            statusDiv.style.color = "var(--err)";
             
-            // TIPP FÜR DEN USER
-            if(e.toString().includes("GATT")) {
-                alert("GATT FEHLER? \n1. Schalte Bluetooth am Handy kurz aus/an.\n2. Entkoppele den Flipper in den Android-Einstellungen!\n3. Versuche es erneut.");
+            // Wenn es immer noch ein GATT-Fehler ist, ist es zu 99% der Cache.
+            if(e.name === 'NotSupportedError' || e.name === 'NotFoundError') {
+                log("\n>>> WICHTIG: Cache-Fehler vermutet. Bitte Flipper in den Android Bluetooth-Einstellungen 'ENTFERNEN' und Bluetooth am Handy neu starten! <<<", 'warn');
             }
         }
     }
 
     function handleData(event) {
-        const val = event.target.value;
-        const str = new TextDecoder().decode(val);
-        term.innerText += str;
-        term.scrollTop = term.scrollHeight;
+        const value = new TextDecoder().decode(event.target.value);
+        log(value);
     }
 
     async function send(cmd) {
-        if (!txChar) return;
+        if (!txCharacteristic) return;
         try {
-            const encoder = new TextEncoder();
-            // Flipper braucht Carriage Return (\r)
-            await txChar.writeValue(encoder.encode(cmd + '\r'));
+            const data = new TextEncoder().encode(cmd + "\r");
+            await txCharacteristic.writeValue(data);
         } catch (e) {
-            term.innerText += `\n[TX ERROR] ${e}\n`;
+            log(`[TX ERROR] ${e.message}`, 'error');
         }
     }
 
     function sendInput() {
-        const el = document.getElementById('cmd');
-        if(el.value) { send(el.value); el.value = ''; }
+        const input = document.getElementById('cmd');
+        if(input.value) { send(input.value); input.value = ''; }
     }
 
     function onDisconnected() {
         statusDiv.innerText = "Getrennt";
         statusDiv.style.color = "#666";
-        document.getElementById('btn-conn').style.display = 'block';
-        term.innerText += "\n>>> VERBINDUNG VERLOREN <<<\n";
+        connectBtn.style.display = 'block';
+        log("\n>>> VERBINDUNG UNTERBROCHEN <<<\n", 'warn');
+    }
+
+    // Helper
+    function log(text, type = 'data') {
+        const colorMap = { 'data': '#00e5ff', 'info': '#888', 'success': '#00ff41', 'error': '#f44336', 'warn': '#ff8c00' };
+        term.innerHTML += `<span style="color:${colorMap[type]}">${text}</span>`;
+        if (type !== 'data') term.innerHTML += '\n'; // Add newline for non-data logs
+        term.scrollTop = term.scrollHeight;
     }
     
-    // Enter Key Handler
     document.getElementById('cmd').addEventListener("keyup", e => {
         if (e.key === "Enter") sendInput();
     });
@@ -155,3 +150,4 @@
 
 </body>
 </html>
+ 
