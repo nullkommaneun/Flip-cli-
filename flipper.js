@@ -8,35 +8,22 @@ const FLIPPER_RX_CHAR = '19ed82ae-ed21-4c9d-4145-228e62fe0000'; // Notify
 
 let device, rxCharacteristic, txCharacteristic;
 
-/**
- * Helper-Funktion für eine kurze Verzögerung
- */
 function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/**
- * Verarbeitet eingehende Daten vom Flipper.
- */
 function handleData(event) {
     const value = new TextDecoder().decode(event.target.value);
     UI.log(value, 'data');
 }
 
-/**
- * Wird aufgerufen, wenn die GATT-Verbindung getrennt wird.
- */
 function onDisconnected() {
     UI.setConnectedState(false);
-    // Referenzen freigeben
     device = null;
     rxCharacteristic = null;
     txCharacteristic = null;
 }
 
-/**
- * Startet den Verbindungs- und Scan-Vorgang.
- */
 export async function connect() {
     if (!navigator.bluetooth) {
         UI.log("Web Bluetooth wird nicht unterstützt!", 'error');
@@ -65,48 +52,47 @@ export async function connect() {
         const service = await server.getPrimaryService(FLIPPER_SERVICE_UUID);
         UI.debug("Service erhalten: " + service.uuid);
         
-        UI.log("Hole RX Characteristic...", 'info');
+        // ### ÄNDERUNG: Reihenfolge getauscht ###
+        
+        UI.log("Hole TX Characteristic (Write)...", 'info');
+        txCharacteristic = await service.getCharacteristic(FLIPPER_TX_CHAR);
+        UI.debug("TX Characteristic erhalten: " + txCharacteristic.uuid);
+        
+        UI.log("Hole RX Characteristic (Notify)...", 'info');
         rxCharacteristic = await service.getCharacteristic(FLIPPER_RX_CHAR);
         UI.debug("RX Characteristic erhalten: " + rxCharacteristic.uuid);
         
-        UI.log("Hole TX Characteristic...", 'info');
-        txCharacteristic = await service.getCharacteristic(FLIPPER_TX_CHAR);
-        UI.debug("TX Characteristic erhalten: " + txCharacteristic.uuid);
+        // ### ENDE ÄNDERUNG ###
 
-        // ### WORKAROUND HINZUGEFÜGT ###
-        // Wir warten 100ms, bevor wir Notifications starten.
-        // Das gibt manchen Bluetooth-Stacks Zeit, sich zu "sortieren".
-        UI.debug("Warte 100ms (Workaround)...");
-        await delay(100); 
-        // ### ENDE WORKAROUND ###
+        // Kurze Pause, sicherheitshalber
+        UI.debug("Warte 50ms...");
+        await delay(50); 
 
         UI.debug("Starte Notifications...");
         await rxCharacteristic.startNotifications();
+        UI.debug("Notifications gestartet!"); // Diesen Log sollten wir jetzt sehen
+
         rxCharacteristic.addEventListener('characteristicvaluechanged', handleData);
 
         UI.setConnectedState(true, device.name);
         
-        // CLI aufwecken
         UI.debug("Sende initialen CR (Wake-Up)");
         send('\r'); 
 
     } catch (e) {
         UI.log(`[FEHLER] ${e.name}: ${e.message}`, 'error');
-        UI.debug(`Fehlerdetails: ${e.stack || e.message}`); // e.stack ist manchmal 'undefined'
+        UI.debug(`Fehlerdetails: ${e.stack || e.message}`);
         
         if (e.name === 'NotFoundError') {
              UI.log("\n>>> FEHLER: Das ausgewählte Gerät ist kein Flipper (Service nicht gefunden). Bitte das richtige Gerät wählen. <<<", 'error');
         }
         
         if (e.name === 'NotSupportedError' || e.name === 'NetworkError') {
-            UI.log("\n>>> WICHTIG: Cache-Fehler vermutet. Bitte Flipper in den Bluetooth-Einstellungen 'ENTFERNEN' und Bluetooth neu starten! (Siehe Lösung A) <<<", 'warn');
+            UI.log("\n>>> CACHE-FEHLER ODER KONFLIKT (z.B. Offizielle App?). Bitte 'Harten Reset' durchführen. <<<", 'warn');
         }
     }
 }
 
-/**
- * Sendet einen Befehl an den Flipper.
- */
 export async function send(cmd) {
     if (!txCharacteristic) {
         UI.log("Senden fehlgeschlagen: Nicht verbunden.", 'error');
@@ -121,4 +107,3 @@ export async function send(cmd) {
         UI.debug(`TX Fehlerdetails: ${e.stack || e.message}`);
     }
 }
- 
