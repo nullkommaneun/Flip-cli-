@@ -1,5 +1,5 @@
 // flipper.js
-import ** as UI from './ui.js';
+import * as UI from './ui.js';
 
 // Flipper Zero BLE Serial UUIDs
 const FLIPPER_SERVICE_UUID = '8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000';
@@ -7,7 +7,8 @@ const FLIPPER_TX_CHAR = '19ed82ae-ed21-4c9d-4145-228e61fe0000'; // Write
 const FLIPPER_RX_CHAR = '19ed82ae-ed21-4c9d-4145-228e62fe0000'; // Notify
 
 // Standard Bluetooth UUID für den Client Characteristic Configuration Descriptor
-const CCCD_UUID = '00002902-0000-1000-8000-00805f9b34fb';
+// HIER DIE ÄNDERUNG: Wir verwenden die 16-Bit-Zahl. Das ist der korrekte Weg.
+const CCCD_UUID = 0x2902;
 
 let device, rxCharacteristic, txCharacteristic;
 
@@ -63,28 +64,29 @@ export async function connect() {
         rxCharacteristic = await service.getCharacteristic(FLIPPER_RX_CHAR);
         UI.debug("RX Characteristic erhalten: " + rxCharacteristic.uuid);
         
-        // ### ÄNDERUNG: MANUELLE NOTIFICATION-AKTIVIERUNG ###
-        // Wir rufen NICHT mehr rxCharacteristic.startNotifications() auf.
+        // ### ÄNDERUNG: MANUELLE NOTIFICATION-AKTIVIERUNG mit 0x2902 ###
         
-        UI.debug("Hole CCCD (0x2902) für RX-Characteristic...");
+        UI.debug("Warte 50ms vor Descriptor-Suche...");
+        await delay(50);
+
+        UI.debug(`Suche CCCD (UUID 0x2902) für RX-Characteristic...`);
         const cccd = await rxCharacteristic.getDescriptor(CCCD_UUID);
         
         if (!cccd) {
             UI.log("[FEHLER] Konnte CCCD (0x2902) nicht finden. Abbruch.", 'error');
-            UI.debug("Gerät scheint Notifications auf RX nicht zu unterstützen.");
             return;
         }
-        UI.debug("CCCD gefunden.");
+        UI.debug("CCCD gefunden: " + cccd.uuid);
 
-        // Registriere den Listener, *bevor* wir den Flipper anweisen zu senden.
+        // Registriere den Listener
         rxCharacteristic.addEventListener('characteristicvaluechanged', handleData);
         UI.debug("Event-Listener 'characteristicvaluechanged' registriert.");
 
-        // Schreibe 0x0100 (Little-Endian) in den CCCD, um Notifications zu aktivieren.
+        // Schreibe 0x0100 (Little-Endian) in den CCCD
         UI.debug("Schreibe 0x0100 (Enable Notifications) in CCCD...");
         await cccd.writeValue(new Uint8Array([0x01, 0x00]));
         
-        UI.debug("Notifications manuell aktiviert!");
+        UI.debug("Notifications manuell (via 0x2902) aktiviert!");
         // ### ENDE ÄNDERUNG ###
 
         UI.setConnectedState(true, device.name);
@@ -103,8 +105,8 @@ export async function connect() {
              UI.log("\n>>> FEHLER: Das ausgewählte Gerät ist kein Flipper (Service/Char/CCCD nicht gefunden). <<<", 'error');
         }
         
-        if (e.name === 'NotSupportedError' || e.name === 'NetworkError') {
-            UI.log("\n>>> FEHLER: 'NotSupported' beim manuellen Schreiben. Das OS blockiert den Zugriff. <<<", 'warn');
+        if (e.name === 'NotSupportedError') {
+             UI.log("\n>>> 'NotSupportedError' BEIM MANUELLEN SCHREIBEN. Das OS/Gerät blockiert den Zugriff. <<<", 'warn');
         }
     }
 }
