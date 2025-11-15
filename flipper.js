@@ -37,16 +37,21 @@ export async function connect() {
     }
 
     try {
-        UI.log("Suche Flipper via Service-UUID...", 'info');
-        UI.debug("Requesting device with service: " + FLIPPER_SERVICE_UUID);
+        // ### ÄNDERUNG HIER ###
+        // Wir filtern nicht mehr nach Services, sondern lassen alle Geräte zu.
+        // Der Benutzer muss den Flipper manuell aus der Liste auswählen.
+        UI.log("Suche Flipper (Alle Geräte anzeigen)...", 'info');
+        UI.debug("Requesting device with acceptAllDevices: true");
 
-        // ### DER FIX (Robust) ###
-        // Filtert direkt nach dem Service, was am robustesten ist.
         device = await navigator.bluetooth.requestDevice({
-            filters: [{
-                services: [FLIPPER_SERVICE_UUID]
-            }]
+            acceptAllDevices: true,
+            // Wir müssen den Service als "optional" deklarieren,
+            // damit wir nach der Verbindung darauf zugreifen dürfen.
+            optionalServices: [FLIPPER_SERVICE_UUID]
         });
+
+        UI.log(`Gerät ausgewählt: ${device.name || 'Unbekannt'}`, 'info');
+        UI.debug(`Verbinde mit Gerät-ID: ${device.id}`);
         
         device.addEventListener('gattserverdisconnected', onDisconnected);
 
@@ -54,6 +59,9 @@ export async function connect() {
         const server = await device.gatt.connect();
         UI.debug("GATT-Server verbunden.");
         
+        // HIER passiert jetzt die "Prüfung". 
+        // Wenn das ausgewählte Gerät den Flipper-Service nicht hat,
+        // schlägt der folgende Aufruf fehl und springt in den catch-Block.
         UI.log("Hole Primary Service...", 'info');
         const service = await server.getPrimaryService(FLIPPER_SERVICE_UUID);
         UI.debug("Service erhalten: " + service.uuid);
@@ -80,7 +88,12 @@ export async function connect() {
         UI.log(`[FEHLER] ${e.name}: ${e.message}`, 'error');
         UI.debug(`Fehlerdetails: ${e.stack}`);
         
-        if (e.name === 'NotSupportedError' || e.name === 'NotFoundError' || e.name === 'NetworkError') {
+        // Dieser Fehler ist jetzt wichtig:
+        if (e.name === 'NotFoundError') {
+             UI.log("\n>>> FEHLER: Das ausgewählte Gerät ist kein Flipper (Service nicht gefunden). Bitte das richtige Gerät wählen. <<<", 'error');
+        }
+        
+        if (e.name === 'NotSupportedError' || e.name === 'NetworkError') {
             UI.log("\n>>> WICHTIG: Cache-Fehler vermutet. Bitte Flipper in den Bluetooth-Einstellungen 'ENTFERNEN' und Bluetooth neu starten! <<<", 'warn');
         }
     }
